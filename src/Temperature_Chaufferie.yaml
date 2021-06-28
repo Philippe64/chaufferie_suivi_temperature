@@ -1,0 +1,186 @@
+substitutions:
+  device_id: "esp32"
+  update_time: 60s
+  publish_interval: 30s
+  device_description: Suivi remperature chaudière mqtt
+  attribution: "Powered by ESHHome Device"
+  appversion: "1.0.0"
+
+esphome:
+  name: chaufferie_temperature
+  platform: ESP32
+  board: esp-wrover-kit
+  comment: $device_description
+
+wifi:
+  ssid: "CIA_PA"
+  password: "RCn81BNDJK"
+
+  # Enable fallback hotspot (captive portal) in case wifi connection fails
+  ap:
+    ssid: "Init Esp32 Device For Ota"
+    password: "V9w5cIoVMhpO"
+
+captive_portal:
+
+# Enable logging
+logger:
+
+# Enable Home Assistant API
+api:
+  password: "Doudou64"
+
+ota:
+  password: "Doudou64"
+ 
+esp32_ble_tracker:
+   
+#enable UART communication for Nextion Screen    
+uart:
+  tx_pin: GPIO17
+  rx_pin: GPIO16
+  baud_rate: 9600
+
+#enable mosquitto   
+mqtt:
+  broker: 192.168.250.122
+  port: 1883
+  username: ciaMQTT
+  password: Doudou64
+
+time:
+  - platform: sntp
+    id: sntp_time
+    timezone: Europe/Paris
+  
+#define dallas protocol and pin connected
+dallas: 
+  pin: 15
+  update_interval: 15s
+  
+#define sensor
+sensor:
+    # used as mqtt publisher
+  - platform: uptime
+    id: upti
+    name: "${device_id} Uptime"
+    update_interval: ${publish_interval}
+    on_value:
+      - mqtt.publish_json:
+          topic: domoticz/in
+          payload: |-
+            root["command"] = "addlogmessage";
+            root["message"] = "Connexion MQTT depuis ESPHOME";
+      - logger.log: MQTT log domoticz published
+
+      #---Publisg xiaomi sensors  content to domoticz via mqtt
+  - platform: uptime
+    id: upti1
+    name: "${device_id} Uptime1"
+    update_interval: ${publish_interval}
+    on_value:
+      - mqtt.publish:
+          topic: domoticz/in
+          payload: !lambda |-
+            std::string messageOut;
+            char strT[16];
+            snprintf(strT, sizeof(strT), "%.2f", id(temp_ext).state);
+            char strH[16];
+            snprintf(strH, sizeof(strH), "%.2f", id(hygr_ext).state);
+            messageOut += "{\"command\":\"udevice\",\"idx\":47,\"nvalue\":0,\"svalue\":\"";
+            messageOut += strT;
+            messageOut += ";";
+            messageOut += strH;
+            messageOut += ";";
+            messageOut += "0";
+            messageOut += "\"}";
+            return messageOut;
+      - logger.log: MQTT Temp Humidity  exterieure published
+    
+  # Dallas sensors
+  - platform: dallas
+    id: temp_piece 
+    name: "temperature-chaufferie"
+    address: 0xAF012033B79C9F28
+    on_value:
+    #---Publisg sensors  content to domoticz via mqtt
+      - mqtt.publish:
+          topic: domoticz/in
+          payload: !lambda |-
+            std::string messageO;
+            char str[16];
+            snprintf(str, sizeof(str), "%.2f", x);
+            messageO += "{\"command\":\"udevice\",\"idx\":45,\"nvalue\":0,\"svalue\":\"";
+            messageO += str;
+            messageO += "\"}";
+            return messageO;
+      - logger.log: MQTT Temp piece published
+      
+  - platform: dallas
+    id: temp_aller
+    name: "temperature-eau-montante"
+    address: 0x6001203261AC0C28
+    on_value:
+    #---Publisg sensors  content to domoticz via mqtt
+      - mqtt.publish:
+          topic: domoticz/in
+          payload: !lambda |-
+            std::string messageO;
+            char str[16];
+            snprintf(str, sizeof(str), "%.2f", x);
+            messageO += "{\"command\":\"udevice\",\"idx\":13,\"nvalue\":0,\"svalue\":\"";
+            messageO += str;
+            messageO += "\"}";
+            return messageO;
+      - logger.log: MQTT Temp aller published
+    
+  - platform: dallas
+    id: temp_retour
+    name: "temperature-eau-descendante"
+    address: 0xD7012033C0040D28
+    on_value:
+    #---Publisg sensors  content to domoticz via mqtt
+      - mqtt.publish:
+          topic: domoticz/in
+          payload: !lambda |-
+            std::string messageO;
+            char str[16];
+            snprintf(str, sizeof(str), "%.2f", x);
+            messageO += "{\"command\":\"udevice\",\"idx\":14,\"nvalue\":0,\"svalue\":\"";
+            messageO += str;
+            messageO += "\"}";
+            return messageO;
+      - logger.log: MQTT Temp retour published
+    
+  #Xiaomi BT Sensor  
+  - platform: xiaomi_lywsd03mmc
+    mac_address: "A4:C1:38:D7:84:DE"
+    bindkey: "4A31D96C50A4C64A43BE1AFCA6A89302"
+    
+    temperature:
+      id: temp_ext
+      name: "Temperature-exterieure"
+     
+      
+    humidity:
+      id: hygr_ext
+      name: "Hygrometrie-exterieure"
+      
+    battery_level:
+      id: batt_ext
+      name: "batterie-sensor"
+      
+#---------- Envois des données récupéré sur les différentes zones de l'ecran---------------
+display:
+  - platform: nextion
+    id: teplomer
+    update_interval: 5s
+    lambda: |-
+      it.set_wait_for_ack(false);
+      it.set_component_text_printf("TtempAller","%.0f",id(temp_aller).state*100);
+      it.set_component_text_printf("TtempRetour","%.0f",id(temp_retour).state*100);
+      it.set_component_text_printf("TtempPiece","%.0f",id(temp_piece).state*100);   
+      it.set_component_text_printf("TtempExt","%.0f",id(temp_ext).state*100);
+      it.set_component_text_printf("ThygroExt","%.0f",id(hygr_ext).state*100);
+      it.set_component_text_printf("TbattExt","%.0f",id(batt_ext).state*100);
+
